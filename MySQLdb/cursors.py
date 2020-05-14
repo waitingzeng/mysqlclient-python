@@ -380,6 +380,9 @@ class CursorStoreResultMixIn(object):
             result = self._rows
         self.rownumber = len(self._rows)
         return result
+    
+    def fetchallDict(self):
+        return self.fetchall()
 
     def scroll(self, value, mode='relative'):
         """Scroll the cursor in the result set to a new position according
