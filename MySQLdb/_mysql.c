@@ -34,6 +34,15 @@ PERFORMANCE OF THIS SOFTWARE.
 #define my_bool _Bool
 #endif
 
+#if ((MYSQL_VERSION_ID >= 50555 && MYSQL_VERSION_ID <= 50599) || \
+(MYSQL_VERSION_ID >= 50636 && MYSQL_VERSION_ID <= 50699) || \
+(MYSQL_VERSION_ID >= 50711 && MYSQL_VERSION_ID <= 50799) || \
+(MYSQL_VERSION_ID >= 80000)) && \
+!defined(MARIADB_BASE_VERSION) && !defined(MARIADB_VERSION_ID)
+#define HAVE_ENUM_MYSQL_OPT_SSL_MODE
+#endif
+
+
 #define PY_SSIZE_T_CLEAN 1
 #include "Python.h"
 #if PY_MAJOR_VERSION >= 3
@@ -376,6 +385,24 @@ static int _mysql_ResultObject_clear(_mysql_ResultObject *self)
     return 0;
 }
 
+
+#ifdef HAVE_ENUM_MYSQL_OPT_SSL_MODE
+static int
+_get_ssl_mode_num(char *ssl_mode)
+{
+    static char *ssl_mode_list[] = { "DISABLED", "PREFERRED",
+                  "REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY" };
+    unsigned int i;
+    for (i=0; i < sizeof(ssl_mode_list)/sizeof(ssl_mode_list[0]); i++) {
+        if (strcmp(ssl_mode, ssl_mode_list[i]) == 0) {
+            // SSL_MODE one-based
+            return i + 1;
+        }
+    }
+    return -1;
+}
+#endif
+
 static int
 _mysql_ConnectionObject_Initialize(
     _mysql_ConnectionObject *self,
@@ -385,6 +412,7 @@ _mysql_ConnectionObject_Initialize(
     MYSQL *conn = NULL;
     PyObject *conv = NULL;
     PyObject *ssl = NULL;
+    char *ssl_mode = NULL;
     const char *key = NULL, *cert = NULL, *ca = NULL,
          *capath = NULL, *cipher = NULL;
     PyObject *ssl_keepref[5] = {NULL};
@@ -398,7 +426,7 @@ _mysql_ConnectionObject_Initialize(
                   "connect_timeout", "compress",
                   "named_pipe", "init_command",
                   "read_default_file", "read_default_group",
-                  "client_flag", "ssl",
+                  "client_flag", "ssl", "ssl_mode",
                   "local_infile",
                   "read_timeout", "write_timeout", "charset",
                   "auth_plugin",
@@ -417,7 +445,7 @@ _mysql_ConnectionObject_Initialize(
     self->open = 0;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs,
-                "|ssssisOiiisssiOiiiss:connect",
+                "|ssssisOiiisssiOsiiiss:connect",
                 kwlist,
                 &host, &user, &passwd, &db,
                 &port, &unix_socket, &conv,
@@ -425,7 +453,7 @@ _mysql_ConnectionObject_Initialize(
                 &compress, &named_pipe,
                 &init_command, &read_default_file,
                 &read_default_group,
-                &client_flag, &ssl,
+                &client_flag, &ssl, &ssl_mode
                 &local_infile,
                 &read_timeout,
                 &write_timeout,
@@ -451,6 +479,18 @@ _mysql_ConnectionObject_Initialize(
         _stringsuck(cert, value, ssl);
         _stringsuck(key, value, ssl);
         _stringsuck(cipher, value, ssl);
+    }
+
+    if (ssl_mode) {
+#ifdef HAVE_ENUM_MYSQL_OPT_SSL_MODE
+        if (_get_ssl_mode_num(ssl_mode) <= 0) {
+            PyErr_SetString(_mysql_NotSupportedError, "Unknown ssl_mode specification");
+            return -1;
+        }
+#else
+        PyErr_SetString(_mysql_NotSupportedError, "MySQL client library does not support ssl_mode specification");
+        return -1;
+#endif
     }
 
     conn = mysql_init(&(self->connection));
@@ -494,6 +534,12 @@ _mysql_ConnectionObject_Initialize(
     if (ssl) {
         mysql_ssl_set(&(self->connection), key, cert, ca, capath, cipher);
     }
+#ifdef HAVE_ENUM_MYSQL_OPT_SSL_MODE
+    if (ssl_mode) {
+        int ssl_mode_num = _get_ssl_mode_num(ssl_mode);
+        mysql_options(&(self->connection), MYSQL_OPT_SSL_MODE, &ssl_mode_num);
+    }
+#endif
     if (charset) {
         mysql_options(&(self->connection), MYSQL_SET_CHARSET_NAME, charset);
     }
