@@ -453,7 +453,7 @@ _mysql_ConnectionObject_Initialize(
                 &compress, &named_pipe,
                 &init_command, &read_default_file,
                 &read_default_group,
-                &client_flag, &ssl, &ssl_mode
+                &client_flag, &ssl, &ssl_mode,
                 &local_infile,
                 &read_timeout,
                 &write_timeout,
